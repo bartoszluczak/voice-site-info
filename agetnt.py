@@ -38,4 +38,4 @@ class YourAgent(RESTfulAgent):
 
 if __name__ == '__main__':
     agent = YourAgent()
-    agent.run(host="0.0.0.0",port=4000)
+    agent.run(port=4000)
