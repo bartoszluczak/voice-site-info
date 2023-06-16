@@ -31,7 +31,7 @@ async def get_page_name(page_url):
         "messages": messages,
         "max_tokens": 100,
         "temperature": 0.8,
-        "model": "gpt-3.5-turbo"
+        "model": os.getenv("OPENAI_MODEL")
     }
     return openai.ChatCompletion.create(**chat_parameters)
 
