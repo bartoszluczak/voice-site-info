@@ -1,26 +1,30 @@
 import asyncio
+import os
 
 import openai
-from fastapi import Response
 import vocode
-from vocode.streaming.models.agent import RESTfulUserImplementedAgentConfig, ChatGPTAgentConfig, AgentConfig
+from fastapi import Response
+from vocode.streaming.models.agent import RESTfulUserImplementedAgentConfig
 from vocode.streaming.models.message import BaseMessage
 from vocode.streaming.telephony.hosted.inbound_call_server import InboundCallServer
 from vocode.streaming.models.telephony import TwilioConfig
-from vocode.streaming.telephony.hosted.inbound_call_user_agent_server import InboundCallUserAgentServer
+from dotenv import load_dotenv
 
-vocode.api_key = "c6641933c930ca4a767582a2dd3edbc6"
+load_dotenv()
 
-webpage_address = 'https://stockbuddyapp.com/'
+vocode.api_key = os.getenv("VOCODE_API_KEY")
+webpage_address = os.getenv("SOURCE_PAGE_URL")
 
-async def getPageName(page_url):
+
+async def get_page_name(page_url):
     openai.api_type = "open_ai"
     openai.api_base = "https://api.openai.com/v1"
     openai.api_version = None
-    openai.api_key = "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"
+    openai.api_key = os.getenv('OPENAI_API_KEY')
 
     messages = [
-        {"role": "system", "content": "Based on information on site " + page_url + " write short professional telephone greeting with some fictional assistant. Give her some friendly name."},
+        {"role": "system",
+         "content": "Based on information on site " + page_url + " write short professional telephone greeting with some fictional assistant. Give her some friendly name."},
     ]
 
     chat_parameters = {
@@ -31,25 +35,26 @@ async def getPageName(page_url):
     }
     return openai.ChatCompletion.create(**chat_parameters)
 
+
 if __name__ == '__main__':
-    intro_text = asyncio.run(getPageName(webpage_address))
+    intro_text = asyncio.run(get_page_name(webpage_address))
 
     server = InboundCallServer(
         agent_config=RESTfulUserImplementedAgentConfig(
             initial_message=BaseMessage(text=intro_text.choices[0].message.content),
             prompt_preamble="You are a helpful AI assistant. Answer questions in 50 words or less.",
             respond=RESTfulUserImplementedAgentConfig.EndpointConfig(
-                url="https://2db2-109-173-156-91.ngrok.io/respond",
+                url=os.getenv("AGENT_URL") + ":" + os.getenv("AGENT_PORT") + "/respond",
             ),
         ),
         twilio_config=TwilioConfig(
-            account_sid='AC968d1b274d38b28de856214f38e2ba36',
-            auth_token='34516b27dab5978600e8bf98f74f4083',
+            account_sid=os.getenv("TWILIO_ACCOUNT_SID"),
+            auth_token=os.getenv("TWILIO_AUTH_TOKEN"),
         ),
     )
 
     server.app.get("/")(lambda: Response(
         content=
-        f"<div>Paste the following URL into your Twilio config: /vocode",
+        f"<div>Vocode Twilio endpoint",
         media_type="text/html"))
-    server.run(host="0.0.0.0", port=3000)
+    server.run(host="0.0.0.0", port=int(os.getenv("INBOUND_CALL_SERVER_PORT")))

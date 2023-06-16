@@ -1,0 +1,4 @@
+openai
+vocode
+fastapi
+python-dotenv
