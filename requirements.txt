@@ -8,3 +8,5 @@ pyngrok~=6.0.0
 matplotlib
 plotly
 sklearn
+numpy~=1.24.3
+vecs~=0.2.6

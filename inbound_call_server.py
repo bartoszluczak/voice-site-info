@@ -6,6 +6,7 @@ import vocode
 from fastapi import Response
 from vocode.streaming.models.agent import RESTfulUserImplementedAgentConfig
 from vocode.streaming.models.message import BaseMessage
+from vocode.streaming.models.synthesizer import ElevenLabsSynthesizerConfig
 from vocode.streaming.telephony.hosted.inbound_call_server import InboundCallServer
 from vocode.streaming.models.telephony import TwilioConfig
 from dotenv import load_dotenv

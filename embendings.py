@@ -83,19 +83,21 @@ def search_reviews(df, product_description, n=3, pprint=True):
         product_description,
         engine="text-embedding-ada-002"
     )
-    df["similarity"] = df.embedding.apply(lambda x: cosine_similarity(x, product_embedding))
 
-    results = (
-        df.sort_values("similarity", ascending=False)
-        .head(n)
-        .Combined.str.replace("Title: ", "")
-        .str.replace("; Content:", ": ")
-    )
-    if pprint:
-        for r in results:
-            # print(r[:200])
-            print(r)
-    return results
+    print(product_embedding)
+    # df["similarity"] = df.embedding.apply(lambda x: cosine_similarity(x, product_embedding))
+    #
+    # results = (
+    #     df.sort_values("similarity", ascending=False)
+    #     .head(n)
+    #     .Combined.str.replace("Title: ", "")
+    #     .str.replace("; Content:", ": ")
+    # )
+    # if pprint:
+    #     for r in results:
+    #         # print(r[:200])
+    #         print(r)
+    # return results
 
 
 results = search_reviews(df, "pricing", n=5)
