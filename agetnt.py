@@ -6,10 +6,11 @@ from vocode.streaming.models.agent import RESTfulAgentOutput, RESTfulAgentText
 from vocode.streaming.user_implemented_agent.restful_agent import RESTfulAgent
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+
 load_dotenv()
 
-openai.api_key = os.getenv('OPENAI_API_KEY')
 webpage_address = os.getenv("SOURCE_PAGE_URL")
+
 
 async def get_embeddings(input_text):
     return openai.Embedding.create(
@@ -17,11 +18,6 @@ async def get_embeddings(input_text):
         input=input_text
     )
 
-response = requests.get(webpage_address)
-soup = BeautifulSoup(response.text, 'html.parser')
-all_texts = soup.get_text()
-embeddings = asyncio.run(get_embeddings(all_texts))
-message_context =  embeddings.data[0].embedding
 
 class YourAgent(RESTfulAgent):
     def __init__(self, ):
@@ -33,17 +29,16 @@ class YourAgent(RESTfulAgent):
     openai.api_key = os.getenv('OPENAI_API_KEY')
 
     async def respond(self, input: str, conversation_id: str) -> RESTfulAgentOutput:
-        prompt = """
-                Context: %s
+        prompt = f"""
+                Context: {message_context}
                 ###
-                Question: %s
-                Completion:
-        """ %(message_context, input)
+                Question: {input}
+        """
 
         print(prompt)
 
         messages = [
-            {"role": "system", "content": "Hello how can I help you"},
+            {"role": "system", "content": f"You are a human assistant, only answer the question by using the provided context and informations from web page {webpage_address}. If your are unable to answer the question using the provided context, say ‘I don’t know’"},
             {"role": "user",
              "content": prompt}
         ]
@@ -62,5 +57,13 @@ class YourAgent(RESTfulAgent):
 
 
 if __name__ == '__main__':
-    agent = YourAgent()
-    agent.run(host="0.0.0.0", port=int(os.getenv("AGENT_PORT")))
+    response = requests.get(webpage_address)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    all_texts = soup.get_text()
+    print(all_texts)
+    # embeddings = asyncio.run(get_embeddings(all_texts))
+    # message_context = embeddings.data[0].embedding
+    # print(message_context)
+
+    # agent = YourAgent()
+    # agent.run(host="localhost", port=int(os.getenv("AGENT_PORT")))

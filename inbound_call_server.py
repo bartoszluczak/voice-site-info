@@ -42,9 +42,10 @@ if __name__ == '__main__':
     server = InboundCallServer(
         agent_config=RESTfulUserImplementedAgentConfig(
             initial_message=BaseMessage(text=intro_text.choices[0].message.content),
-            prompt_preamble="You are a helpful AI assistant. Answer questions in 50 words or less.",
+            prompt_preamble="You are a helpful assistant. Answer questions in 50 words or less.",
             respond=RESTfulUserImplementedAgentConfig.EndpointConfig(
-                url=os.getenv("AGENT_URL") + ":" + os.getenv("AGENT_PORT") + "/respond",
+                # url=os.getenv("AGENT_URL") + ":" + os.getenv("AGENT_PORT") + "/respond",
+                url=os.getenv("AGENT_URL") + "/respond",
             ),
         ),
         twilio_config=TwilioConfig(
@@ -57,4 +58,4 @@ if __name__ == '__main__':
         content=
         f"<div>Vocode Twilio endpoint",
         media_type="text/html"))
-    server.run(host="0.0.0.0", port=int(os.getenv("INBOUND_CALL_SERVER_PORT")))
+    server.run(host="localhost", port=int(os.getenv("INBOUND_CALL_SERVER_PORT")))
