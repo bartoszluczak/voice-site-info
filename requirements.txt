@@ -7,6 +7,7 @@ beautifulsoup4~=4.12.2
 pyngrok~=6.0.0
 matplotlib
 plotly
-sklearn
+scikit-learn
 numpy~=1.24.3
 vecs~=0.2.6
+pandas
