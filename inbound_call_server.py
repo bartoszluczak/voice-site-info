@@ -7,6 +7,8 @@ from fastapi import Response
 from vocode.streaming.models.agent import RESTfulUserImplementedAgentConfig
 from vocode.streaming.models.message import BaseMessage
 from vocode.streaming.models.synthesizer import ElevenLabsSynthesizerConfig
+from vocode.streaming.models.transcriber import DeepgramTranscriberConfig, PunctuationEndpointingConfig, \
+    GoogleTranscriberConfig, TimeEndpointingConfig
 from vocode.streaming.telephony.hosted.inbound_call_server import InboundCallServer
 from vocode.streaming.models.telephony import TwilioConfig
 from dotenv import load_dotenv
@@ -25,13 +27,13 @@ async def get_page_name(page_url):
 
     messages = [
         {"role": "system",
-         "content": "Based on information on site " + page_url + " write short professional telephone greeting with some fictional assistant. Give her some friendly name."},
+         "content": "Write short professional telephone greeting for fictional company with frictional assistant. Make up a companny name and assistant name"},
     ]
 
     chat_parameters = {
         "messages": messages,
         "max_tokens": 100,
-        "temperature": 0.8,
+        "temperature": 0.5,
         "model": os.getenv("OPENAI_MODEL")
     }
     return openai.ChatCompletion.create(**chat_parameters)
@@ -53,6 +55,12 @@ if __name__ == '__main__':
             account_sid=os.getenv("TWILIO_ACCOUNT_SID"),
             auth_token=os.getenv("TWILIO_AUTH_TOKEN"),
         ),
+        transcriber_config=GoogleTranscriberConfig.from_telephone_input_device(
+            # endpointing_config=PunctuationEndpointingConfig()
+        )
+        # transcriber_config=DeepgramTranscriberConfig.from_telephone_input_device(
+        #     endpointing_config=PunctuationEndpointingConfig()
+        # ),
     )
 
     server.app.get("/")(lambda: Response(
