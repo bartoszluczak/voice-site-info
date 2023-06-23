@@ -7,7 +7,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 import os
 import openai
 from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory, ConversationSummaryBufferMemory
 
 load_dotenv()
 
@@ -55,7 +55,8 @@ initial_prompt = """
 
 
 llm = ChatOpenAI(temperature=0.6, model_name="gpt-3.5-turbo-0613")
-memory = ConversationBufferMemory(return_messages=True, memory_key="chat_history")
+# memory = ConversationBufferMemory(return_messages=True, memory_key="chat_history")
+memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=100, memory_key="chat_history", return_messages=True)
 memory.chat_memory.add_ai_message(initial_prompt)
 
 gplaceapi = GooglePlacesAPIWrapper(top_k_results=1)

@@ -13,3 +13,4 @@ vecs~=0.2.6
 pandas~=2.0.2
 langchain~=0.0.149
 googlemaps
+gunicorn
