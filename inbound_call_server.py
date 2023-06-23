@@ -44,7 +44,7 @@ if __name__ == '__main__':
 
     server = InboundCallServer(
         agent_config=RESTfulUserImplementedAgentConfig(
-            initial_message=BaseMessage(text=intro_text.choices[0].message.content),
+            initial_message=BaseMessage(text="Hello, this is AI Agent Page. Ask me about phone numbers, addresses, and more near you. How can I assist you?"),
             prompt_preamble="You are a helpful assistant. Answer questions in 50 words or less.",
             respond=RESTfulUserImplementedAgentConfig.EndpointConfig(
                 # url=os.getenv("AGENT_URL") + ":" + os.getenv("AGENT_PORT") + "/respond",

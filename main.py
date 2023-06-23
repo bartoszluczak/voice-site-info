@@ -6,21 +6,21 @@ from typing import Optional
 import openai
 from fastapi import FastAPI
 from vocode.streaming.models.model import BaseModel
-from vocode.streaming.models.synthesizer import SynthesizerConfig, ElevenLabsSynthesizerConfig
+from vocode.streaming.models.synthesizer import SynthesizerConfig, ElevenLabsSynthesizerConfig, AzureSynthesizerConfig
 
 from vocode.streaming.models.synthesizer import ElevenLabsSynthesizerConfig
 
 from vocode.streaming.models.telephony import TwilioConfig
 from pyngrok import ngrok
 from vocode.streaming.models.transcriber import TranscriberConfig
+from vocode.streaming.synthesizer import AzureSynthesizer
 from vocode.streaming.telephony.config_manager.redis_config_manager import (
     RedisConfigManager,
 )
 from vocode.streaming.models.agent import ChatGPTAgentConfig, AgentConfig
 from vocode.streaming.models.message import BaseMessage
 from vocode.streaming.telephony.server.base import (
-    TwilioInboundCallConfig,
-    TelephonyServer,
+    TelephonyServer, InboundCallConfig,
 )
 from vocode.streaming.models.agent import RESTfulUserImplementedAgentConfig
 from vocode.streaming.models.message import BaseMessage
@@ -43,28 +43,39 @@ config_manager = RedisConfigManager()
 
 BASE_URL = os.getenv("BASE_URL")
 
-
-async def get_page_name(page_url):
-    openai.api_type = "open_ai"
-    openai.api_base = "https://api.openai.com/v1"
-    openai.api_version = None
-    openai.api_key = "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"
-
-    messages = [
-        {"role": "system",
-         "content": "Based on information on site " + page_url + " write short professional telephone greeting with some fictional assistant. Give her some friendly name."},
-    ]
-
-    chat_parameters = {
-        "messages": messages,
-        "max_tokens": 100,
-        "temperature": 0.8,
-        "model": "gpt-3.5-turbo-16k"
-    }
-
-    resp = await openai.ChatCompletion.create(**chat_parameters)
-    return resp
-
+initial_prompt = """
+    Your task is to engage in helpful and friendly conversations to assist a person who is calling to know phone numbers, address, business and more about business near them.
+    - This conversion is via SMS, so be VERY concise. No long answers. Shorten them.
+    - Use whole context of the conversation
+    - Never speak for anyone else, don’t break character.
+    - First, start by narrowing in on what the caller is looking for. Then, ask them if needed the location about the services they are looking for. Assume the caller’s location will always be the United States as the country, although they may provide an address for any other country too.
+    - A helpful assistant will ask multiple clarifying questions relevant to the caller’s question before moving forward.
+    - A helpful assistant will never assume the buyer's gender.
+    - Don't guess, simply ask them when you are not certain!
+    - You can engage in other topics, but just for three questions max. Then, you say that you have been trained to answer about phone numbers, addresses, and businesses near you.
+    - If a buyer asks for an agent or talk with a person, tell them we don’t offer that service. Ask them, Would you like to receive an SMS where you can continue the conversation?”.
+    - If a buyer is unhappy with the results, tell them you are a new assistant and still learning.
+    - Remember to always be friendly and helpful in your interactions with callers, and to follow the other rules and guidelines provided to you.
+    - Remember you are interacting with someone via voice, so be concise and to the point.
+    - Don’t get stuck in “I don’t understand the question.” Ask them, Would you like to receive an SMS where you can continue the conversation?”.
+    - Overall, my goal is to provide a positive experience for the caller, grab what the caller wants, use the search and details plugin to give them back that information, and tell them thank you for the call.
+    - Understand and communicate in multiple languages, if you detect they speak in another language, switch to that.
+    - Try very hard to use the less words as possible.
+    - Then, use the Search plugin to fetch business information to the caller. When sharing lists of business, no need to share the location and rather how far they from their location. Ask them for which business they want to know more, and then use the details plugins for that. Share 3 maximum. No need to share the phone numbers when you are telling more than one business. Just their name, distance and anything relevant and short.
+    - You can use the Details plugin to fetch more information about a business. This is useful if you want to show the caller more information about a business.
+    ####
+    Example of conversation:
+    User> I am looking for the nearest car repair
+    Bot> Great, what is your location?
+    User> I  am on 58th street and 9th avenue
+    Bot> Which city?
+    User> New York
+    Bot> I have found 3 car repair centers which are close to you. The closest is Business X, 0.5km from you. Do you want the phone number?
+    User> Yeah
+    Bot> Please write it down. 912 323 2323. Repeat  912 323 2323. Anything else?
+    User> No, thanks!
+    Bot> My pleasure
+    """
 
 if not BASE_URL:
     ngrok_auth = os.environ.get("NGROK_AUTH_TOKEN")
@@ -79,22 +90,17 @@ if not BASE_URL:
 if not BASE_URL:
     raise ValueError("BASE_URL must be set in environment if not using pyngrok")
 
-webpage_address = "https://stockbuddyapp.com/"
-
-
-# intro_text = get_page_name(webpage_address)
-# print(intro_text)
 
 
 telephony_server = TelephonyServer(
     base_url=BASE_URL,
     config_manager=config_manager,
     inbound_call_configs=[
-        TwilioInboundCallConfig(
+        InboundCallConfig(
             url="/inbound_call",
             agent_config=RESTfulUserImplementedAgentConfig(
                 initial_message=BaseMessage(text="Hello I am your assistant"),
-                prompt_preamble="You are a helpful assistant. Answer questions in 50 words or less.",
+                prompt_preamble=initial_prompt,
                 respond=RESTfulUserImplementedAgentConfig.EndpointConfig(
                     url="http://35.208.224.244:4001/respond",
                 ),
@@ -103,10 +109,13 @@ telephony_server = TelephonyServer(
                 account_sid=os.environ["TWILIO_ACCOUNT_SID"],
                 auth_token=os.environ["TWILIO_AUTH_TOKEN"],
             ),
-            synthesizer_config=ElevenLabsSynthesizerConfig.from_telephone_output_device(
-                api_key=os.getenv("ELEVENLABS_API_KEY"),
-                voice_id=os.getenv("VOICE_ID")
-    )
+            # synthesizer_config=ElevenLabsSynthesizerConfig.from_telephone_output_device(
+            #     api_key=os.getenv("ELEVENLABS_API_KEY"),
+            #     voice_id=os.getenv("VOICE_ID")
+    #)
+            synthesizer=AzureSynthesizer(
+                AzureSynthesizerConfig.from_telephone_output_device()
+            ),
         )
     ],
     # agent_factory=SpellerAgentFactory(),
