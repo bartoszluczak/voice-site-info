@@ -109,4 +109,4 @@ class YourAgent(RESTfulAgent):
 
 if __name__ == '__main__':
     agent = YourAgent()
-    agent.run(host="localhost", port=int(os.getenv("AGENT_PORT")))
+    agent.run(host="0.0.0.0", port=int(os.getenv("AGENT_PORT")))

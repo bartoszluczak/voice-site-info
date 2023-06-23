@@ -11,6 +11,6 @@ scikit-learn
 numpy~=1.24.3
 vecs~=0.2.6
 pandas~=2.0.2
-langchain~=0.0.149
+langchain~=0.0.208
 googlemaps
 gunicorn
