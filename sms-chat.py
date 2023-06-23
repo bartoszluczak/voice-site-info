@@ -7,7 +7,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 import os
 import openai
 from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory, ConversationSummaryBufferMemory
+from langchain.memory import ConversationSummaryBufferMemory
 
 load_dotenv()
 
@@ -15,7 +15,7 @@ openai.api_key = os.getenv('OPENAI_API_KEY')
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.langchain.plus"
 os.environ["LANGCHAIN_API_KEY"] = os.getenv('LANGCHAIN_API_KEY')
-os.environ["LANGCHAIN_SESSION"] = "agent-prod"
+os.environ["LANGCHAIN_SESSION"] = os.getenv('LANGCHAIN_SESSION_SMS')
 
 app = Flask(__name__)
 
