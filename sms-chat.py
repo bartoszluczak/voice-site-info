@@ -1,18 +1,21 @@
-import asyncio
-
-import numpy as np
-import pandas as pd
 from dotenv import load_dotenv
 from flask import Flask, request
+from langchain.agents import initialize_agent, AgentType, Tool
 from langchain.tools import GooglePlacesTool
+from langchain.utilities import GooglePlacesAPIWrapper
 from twilio.twiml.messaging_response import MessagingResponse
 import os
 import openai
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
 
 load_dotenv()
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
-print(openai.api_key)
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.langchain.plus"
+os.environ["LANGCHAIN_API_KEY"] = os.getenv('LANGCHAIN_API_KEY')
+os.environ["LANGCHAIN_SESSION"] = "agent-prod"
 
 app = Flask(__name__)
 
@@ -50,72 +53,39 @@ initial_prompt = """
     Bot> My pleasure
     """
 
-messages = []
 
+llm = ChatOpenAI(temperature=0.6, model_name="gpt-3.5-turbo-0613")
+memory = ConversationBufferMemory(return_messages=True, memory_key="chat_history")
+memory.chat_memory.add_ai_message(initial_prompt)
 
-async def get_embeddings(input_text):
-    return openai.Embedding.create(
-        model="text-embedding-ada-002",
-        input=input_text
-    )
+gplaceapi = GooglePlacesAPIWrapper(top_k_results=1)
+search = GooglePlacesTool(api_wrapper=gplaceapi)
 
-
-async def summarize(messages):
-    new_prompt = [{"role": "system", "content": f"Summarize the whole conversation {messages}"}]
-
-    summary = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=new_prompt,
-        max_tokens=500,
-        temperature=0.7
-    )
-
-    messages = [{"role": "system", "content": summary["choices"][0]["message"]}]
+tools = [
+    Tool(
+        name="Google Places Search",
+        func=search.run,
+        description="useful for when you need to answer questions about current events or the current state of the world"
+    ),
+]
 
 
 @app.route("/sms", methods=['POST'])
 def chatgpt():
-    inb_msg = request.form['Body'].lower()
+    user_number = request.form["From"]
+    user_msg = request.form['Body'].lower()
 
-    search = GooglePlacesTool()
-    search_results = search.run(inb_msg)
-    first_result = search_results.split("2.", 1)[0]
+    inb_msg = f"Message from number {user_number}, message content {user_msg}"
+    agent_chain = initialize_agent(tools, llm, agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, verbose=True,
+                                   memory=memory)
 
-    first_result = first_result.replace("1. ", "Name: ")
-    messages.insert(0, {"role": "system", "content": initial_prompt})
-
-    prompt = f"""
-            context: {first_result}
-            ###
-            Question: {inb_msg}
-            Completion:
-    """
-
-    messages.append({"role": "user", "content": prompt})
-
-    print(messages)
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages,
-        max_tokens=500,
-        temperature=0.7
-    )
-
-    chatgpt_response = response["choices"][0]["message"]
-
-    messages.append(chatgpt_response)
+    chatgpt_response = agent_chain.run(input=inb_msg)
 
     resp = MessagingResponse()
-    resp.message(chatgpt_response["content"])
+    resp.message(chatgpt_response)
 
-    asyncio.run(summarize(summarize))
     return str(resp)
 
 
 if __name__ == "__main__":
-    # datafile_path = "./prompt-embeddings.csv"
-    # df = pd.read_csv(datafile_path)
-    # dfList = df.to_numpy().flatten().tolist()
-    # print(dfList)
     app.run(host="localhost", port=6000, debug=False)
