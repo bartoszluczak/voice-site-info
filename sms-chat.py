@@ -1,16 +1,21 @@
+import os
+import datetime
+import openai
 from dotenv import load_dotenv
 from flask import Flask, request
-from langchain.agents import initialize_agent, AgentType, Tool
+from langchain import OpenAI
+from langchain.agents import Tool, ConversationalChatAgent, AgentExecutor
+from langchain.callbacks.manager import trace_as_chain_group
 from langchain.tools import GooglePlacesTool
 from langchain.utilities import GooglePlacesAPIWrapper
-from twilio.twiml.messaging_response import MessagingResponse
-import os
-import openai
 from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationSummaryBufferMemory
-
+from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
+from supabase import create_client
 load_dotenv()
 
+url = os.getenv("SUPABASE_URL")
+key = os.getenv("SUPABASE_KEY")
+supabase = create_client(url, key)
 openai.api_key = os.getenv('OPENAI_API_KEY')
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.langchain.plus"
@@ -52,12 +57,8 @@ initial_prompt = """
     User> No, thanks!
     Bot> My pleasure
     """
-
-
+history = ChatMessageHistory()
 llm = ChatOpenAI(temperature=0.6, model_name="gpt-3.5-turbo-0613")
-# memory = ConversationBufferMemory(return_messages=True, memory_key="chat_history")
-memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=100, memory_key="chat_history", return_messages=True)
-memory.chat_memory.add_ai_message(initial_prompt)
 
 gplaceapi = GooglePlacesAPIWrapper(top_k_results=1)
 search = GooglePlacesTool(api_wrapper=gplaceapi)
@@ -76,16 +77,43 @@ def chatgpt():
     user_number = request.form["From"]
     user_msg = request.form['Body'].lower()
 
+    user_msg_history = supabase.table('conversations').select('id','conversations').eq('phone_number', user_number).execute()
+
+
+    if len(user_msg_history.data) > 0:
+        msg = user_msg_history.data[0]
+        history.add_ai_message(msg['conversations'])
+
+    history.add_user_message(user_msg)
+
+    memory = ConversationSummaryMemory.from_messages(llm=OpenAI(temperature=0, tags=['bot_conversation_summary', str(user_number)]), chat_memory=history,
+                                                     return_messages=True, memory_key="chat_history")
+
+    custom_agent = ConversationalChatAgent.from_llm_and_tools(llm=llm, tools=tools, system_message=initial_prompt)
+    agent_executor = AgentExecutor.from_agent_and_tools(agent=custom_agent, tools=tools, memory=memory)
+    agent_executor.verbose = False
+
     inb_msg = f"Message from number {user_number}, message content {user_msg}"
-    agent_chain = initialize_agent(tools, llm, agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, verbose=True,
-                                   memory=memory)
+    chatgpt_response = ''
+    with trace_as_chain_group("conversation_with_bot") as group_manager:
+        chatgpt_response = agent_executor.run(input=inb_msg, tags=['user_bot_conversation', str(user_number)], callbacks=group_manager)
 
-    chatgpt_response = agent_chain.run(input=inb_msg)
+    history.add_ai_message(chatgpt_response)
 
-    resp = MessagingResponse()
-    resp.message(chatgpt_response)
+    if len(user_msg_history.data) > 0 and user_msg_history.data[0]['id']:
+        user_id = user_msg_history.data[0]['id']
+        data = supabase.table("conversations").update({"id": user_id, "last_update": str(datetime.datetime.now()), "phone_number": user_number, "conversations": memory.buffer}).eq("phone_number",
+                                                                                                          user_number).execute()
+    else:
+        data, count = supabase.table('conversations').insert(
+            {"created_at": str(datetime.datetime.now()), "phone_number": user_number,
+             "conversations": memory.buffer}).execute()
+    memory.clear()
 
-    return str(resp)
+    # resp = MessagingResponse()
+    # resp.message(chatgpt_response)
+
+    return chatgpt_response
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ openai~=0.27.8
 vocode~=0.1.110
 fastapi~=0.95.2
 python-dotenv~=1.0.0
-requests~=2.31.0
+requests~=2.25.1
 beautifulsoup4~=4.12.2
 pyngrok~=6.0.0
 matplotlib
@@ -14,3 +14,7 @@ pandas~=2.0.2
 langchain~=0.0.208
 googlemaps
 gunicorn
+supabase-py
+Flask~=2.3.2
+twilio~=8.3.0
+supabase~=1.0.3
