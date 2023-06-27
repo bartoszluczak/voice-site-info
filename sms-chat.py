@@ -14,6 +14,7 @@ from langchain.utilities import GooglePlacesAPIWrapper
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ChatMessageHistory, ConversationBufferMemory
 from supabase import create_client
+from twilio.twiml.messaging_response import MessagingResponse
 
 load_dotenv()
 
@@ -88,6 +89,54 @@ tools = [
 
 
 @app.route("/sms", methods=['POST'])
+def sms_chatgpt():
+    user_number = request.form["From"]
+    user_msg = request.form['Body'].lower()
+
+    user_msg_history = supabase.table('conversations').select('id', 'conversations').eq('phone_number',
+                                                                                        user_number).execute()
+
+    if len(user_msg_history.data) > 0:
+        msg = user_msg_history.data[0]
+        dicts = json.loads(msg['conversations'])
+        new_messages = messages_from_dict(dicts)
+        history.messages = new_messages
+
+    history.add_user_message(user_msg)
+    memory = ConversationBufferMemory(chat_memory=history,
+                                      return_messages=True, memory_key="chat_history")
+
+    custom_agent = ConversationalChatAgent.from_llm_and_tools(llm=llm, tools=tools, system_message=initial_prompt_s, handle_parsing_errors=True,)
+    agent_executor = AgentExecutor.from_agent_and_tools(agent=custom_agent, tools=tools, memory=memory, handle_parsing_errors=True,)
+    agent_executor.verbose = False
+
+    inb_msg = f"Message from number {user_number}, message content {user_msg}"
+    chatgpt_response = ''
+    with trace_as_chain_group("conversation_with_bot") as group_manager:
+        chatgpt_response = agent_executor.run(input=inb_msg, tags=['user_bot_conversation', str(user_number)],
+                                              callbacks=group_manager)
+
+    history.add_ai_message(chatgpt_response)
+    dicts = messages_to_dict(history.messages)
+
+    if len(user_msg_history.data) > 0 and user_msg_history.data[0]['id']:
+        user_id = user_msg_history.data[0]['id']
+        data = supabase.table("conversations").update(
+            {"id": user_id, "last_update": str(datetime.datetime.now()), "phone_number": user_number,
+             "conversations": dicts}).eq("phone_number",
+                                         user_number).execute()
+    else:
+        data, count = supabase.table('conversations').insert(
+            {"created_at": str(datetime.datetime.now()), "phone_number": user_number,
+             "conversations": dicts}).execute()
+    memory.clear()
+    history.clear()
+    resp = MessagingResponse()
+    resp.message(chatgpt_response)
+
+    return resp.message(chatgpt_response)
+
+@app.route("/sms", methods=['POST'])
 def chatgpt():
     user_number = request.form["From"]
     user_msg = request.form['Body'].lower()
@@ -130,11 +179,8 @@ def chatgpt():
              "conversations": dicts}).execute()
     memory.clear()
     history.clear()
-    # resp = MessagingResponse()
-    # resp.message(chatgpt_response)
 
     return chatgpt_response
 
-
 if __name__ == "__main__":
-    app.run(host="localhost", port=6000, debug=False)
+    app.run(host="localhost", port=5000, debug=False)
