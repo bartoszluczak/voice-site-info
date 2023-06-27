@@ -97,10 +97,12 @@ class YourAgent(RESTfulAgent):
         print('AGENT')
         print("USER INPUT: ", input)
 
-        agent_chain = initialize_agent(tools, llm, agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, verbose=True,
-                                       memory=memory)
+        # agent_chain = initialize_agent(tools, llm, agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, verbose=True,
+        #                                memory=memory)
 
-        text = agent_chain.run(input=input)
+        resp = openai.ChatCompletion.create(model='gpt-3.5-turbo-0613', messages=messages, stream=True)
+
+        # text = agent_chain.run(input=input)
 
         print("COMPLETION: ", text)
 
