@@ -2,18 +2,12 @@ import json
 import os
 import datetime
 import openai
+import requests
 from dotenv import load_dotenv
 from flask import Flask, request
-from langchain import OpenAI
-from langchain.agents import Tool, ConversationalChatAgent, AgentExecutor
-from langchain.callbacks.manager import trace_as_chain_group
-from langchain.schema import messages_from_dict, messages_to_dict
-
-from langchain.tools import GooglePlacesTool
-from langchain.utilities import GooglePlacesAPIWrapper
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ChatMessageHistory, ConversationBufferMemory
+from langchain.memory import ChatMessageHistory
 from supabase import create_client
+from twilio.twiml.messaging_response import MessagingResponse
 
 load_dotenv()
 
@@ -21,14 +15,10 @@ url = os.getenv("SUPABASE_URL")
 key = os.getenv("SUPABASE_KEY")
 supabase = create_client(url, key)
 openai.api_key = os.getenv('OPENAI_API_KEY')
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_ENDPOINT"] = "https://api.langchain.plus"
-os.environ["LANGCHAIN_API_KEY"] = os.getenv('LANGCHAIN_API_KEY')
-os.environ["LANGCHAIN_SESSION"] = os.getenv('LANGCHAIN_SESSION_SMS')
 
 app = Flask(__name__)
 
-initial_prompt2 = """
+initial_prompt_l = """
     Your task is to engage in helpful and friendly conversations to assist a person who is calling to know phone numbers, address, business and more about business near them.
     1. This conversion is via SMS, so be VERY concise. No long answers. Shorten them.
     2. Use whole context of the conversation
@@ -68,32 +58,28 @@ initial_prompt2 = """
     1. Google Places Search: useful for when you need to answer questions about current events or the current state of the world
     """
 
-initial_prompt = "Your task is to engage in helpful and friendly conversations to assist a person who is calling to know phone numbers, address, business and more about business near them"
+initial_prompt_s = "Your task is to engage in helpful and friendly conversations to assist a person who is calling to know phone numbers, address, business and more about business near them"
 
 history = ChatMessageHistory()
-llm = ChatOpenAI(temperature=0.6, model_name="gpt-3.5-turbo-0613", request_timeout=120, max_tokens=20)
-
-gplaceapi = GooglePlacesAPIWrapper(top_k_results=1)
-search = GooglePlacesTool(api_wrapper=gplaceapi)
-
-tools = [
-    Tool(
-        name="Google Places Search",
-        func=search.run,
-        description="useful for when you need to answer questions about current events or the current state of the world"
-    ),
-]
-
 
 def search_google_places(place, location):
-    print(place, location)
-    res = json.dumps(search.run(place + location))
-    print(res)
+    url = f"https://maps.googleapis.com/maps/api/place/textsearch/json?query={place+location}&key={os.getenv('GPLACES_API_KEY')}&radius=50"
+
+    payload = {}
+    headers = {}
+
+    response = requests.request("GET", url, headers=headers, data=payload)
+    results = []
+    dicts = json.loads(response.text)
+    for result in dicts['results']:
+        results.append({"name": result['name'], "address": result['formatted_address'], "place_id": result["place_id"], "rating": result["rating"]})
+    res = json.dumps(results[0:3])
     return res
 
 
 @app.route("/sms", methods=['POST'])
 def chatgpt():
+    messages = []
     user_number = request.form["From"]
     user_msg = request.form['Body'].lower()
 
@@ -101,31 +87,17 @@ def chatgpt():
                                                                                         user_number).execute()
 
     if len(user_msg_history.data) > 0:
-        msg = user_msg_history.data[0]
-        dicts = json.loads(msg['conversations'])
-        new_messages = messages_from_dict(dicts)
-        history.messages = new_messages
+        msg_history = user_msg_history.data[0]['conversations']
+        dicts = json.loads(msg_history)
 
-    history.add_user_message(user_msg)
-    # memory = ConversationBufferMemory(chat_memory=history,
-    #                                   return_messages=True, memory_key="chat_history")
+        for msg in dicts:
+            messages.append(msg)
 
-    # custom_agent = ConversationalChatAgent.from_llm_and_tools(llm=llm, tools=tools, system_message=initial_prompt, handle_parsing_errors=True,)
-    # agent_executor = AgentExecutor.from_agent_and_tools(agent=custom_agent, tools=tools, memory=memory, handle_parsing_errors=True,)
-    # agent_executor.verbose = False
+    else:
+        messages.append({"role": "system", "content": initial_prompt_l})
 
     inb_msg = f"Message from number {user_number}, message content {user_msg}"
-    chatgpt_response = ''
-    # with trace_as_chain_group("conversation_with_bot") as group_manager:
-    #     chatgpt_response = agent_executor.run(input=inb_msg, tags=['user_bot_conversation', str(user_number)],
-    #                                           callbacks=group_manager)
-
-    dicts = messages_to_dict(history.messages)
-    messages = []
-    messages.append({"role": "system", 'content': initial_prompt2})
-    for single_msg in dicts:
-        role = 'system' if single_msg['type'] == 'ai' else 'user' if single_msg['type'] == 'human' else 'assistant'
-        messages.append({'role': role, 'content': single_msg['data']['content']})
+    messages.append({"role": "user", "content": inb_msg})
 
     functions = [
                                                         {
@@ -154,10 +126,9 @@ def chatgpt():
     response_message = chatgpt_response["choices"][0]["message"]
 
     if response_message.get("function_call"):
-        print("IN IF")
         available_functions = {
             "search_google_places": search_google_places,
-        }  # only one function in this example, but you can have multiple
+        }
         function_name = response_message["function_call"]["name"]
         fuction_to_call = available_functions[function_name]
         function_args = json.loads(response_message["function_call"]["arguments"])
@@ -165,57 +136,125 @@ def chatgpt():
             place=function_args.get("place"),
             location=function_args.get("location"),
         )
-
-        messages.append(response_message)  # extend conversation with assistant's reply
+        messages.append(response_message)
         messages.append(
             {
                 "role": "function",
                 "name": function_name,
                 "content": function_response,
             }
-        )  # extend conversation with function response
+        )
         second_response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo-0613",
             messages=messages,
-        )  # get a new response from GPT where it can see the function response
-        print(second_response)
-        return second_response
+        )
 
-    # history.add_ai_message(chatgpt_response)
-    # dicts = messages_to_dict(history.messages)
-
-    res = ""
-
-    # for event in chatgpt_response:
-    # #     # STREAM THE ANSWER
-    #     print(event, end='', flush=True)  # Print the response
-    # #     if event.choices[0].finish_reason != 'stop':
-    #     text = event.choices[0].delta.content
-    #     # res = res + text
-    #     if len(text) > 0:
-    #         return text
-    #
-    #
-    # print("RES: " + res)
+        response_message = second_response["choices"][0]["message"]
+    messages.append(response_message)
 
     if len(user_msg_history.data) > 0 and user_msg_history.data[0]['id']:
         user_id = user_msg_history.data[0]['id']
         data = supabase.table("conversations").update(
             {"id": user_id, "last_update": str(datetime.datetime.now()), "phone_number": user_number,
-             "conversations": dicts}).eq("phone_number",
+             "conversations": messages}).eq("phone_number",
                                          user_number).execute()
     else:
         data, count = supabase.table('conversations').insert(
             {"created_at": str(datetime.datetime.now()), "phone_number": user_number,
-             "conversations": dicts}).execute()
-    # memory.clear()
-    history.clear()
-    # resp = MessagingResponse()
-    # resp.message(chatgpt_response)
+             "conversations": messages}).execute()
 
-    return chatgpt_response
-    # return chatgpt_response
 
+    resp = MessagingResponse()
+    return resp.message(response_message.content)
+
+@app.route("/chat", methods=['POST'])
+def chatgpt():
+    messages = []
+    user_number = request.form["From"]
+    user_msg = request.form['Body'].lower()
+
+    user_msg_history = supabase.table('conversations').select('id', 'conversations').eq('phone_number',
+                                                                                        user_number).execute()
+
+    if len(user_msg_history.data) > 0:
+        msg_history = user_msg_history.data[0]['conversations']
+        dicts = json.loads(msg_history)
+
+        for msg in dicts:
+            messages.append(msg)
+
+    else:
+        messages.append({"role": "system", "content": initial_prompt_l})
+
+    inb_msg = f"Message from number {user_number}, message content {user_msg}"
+    messages.append({"role": "user", "content": inb_msg})
+
+    functions = [
+                                                        {
+                                                            "name": "search_google_places",
+                                                            "description": "Get places and businesses near the given location",
+                                                            "parameters": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "location": {
+                                                                        "type": "string",
+                                                                        "description": "The street, city and state, e.g. San Francisco, CA",
+                                                                    },
+                                                                    "place": {
+                                                                        "type": 'string',
+                                                                        "description": "The type or name of the place or business"
+                                                                    }
+                                                                },
+                                                                "required": ["place", "location"],
+                                                            },
+                                                        }
+                                                    ]
+    chatgpt_response = openai.ChatCompletion.create(model='gpt-3.5-turbo-0613', messages=messages,
+                                                    functions=functions,
+                                                    function_call="auto",
+                                                    stream=False, max_tokens=50)
+    response_message = chatgpt_response["choices"][0]["message"]
+    # messages.append({"role": "assistant", "content": response_message})
+
+    if response_message.get("function_call"):
+        available_functions = {
+            "search_google_places": search_google_places,
+        }
+        function_name = response_message["function_call"]["name"]
+        fuction_to_call = available_functions[function_name]
+        function_args = json.loads(response_message["function_call"]["arguments"])
+        function_response = fuction_to_call(
+            place=function_args.get("place"),
+            location=function_args.get("location"),
+        )
+        messages.append(response_message)
+        messages.append(
+            {
+                "role": "function",
+                "name": function_name,
+                "content": function_response,
+            }
+        )
+        second_response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-0613",
+            messages=messages,
+        )
+
+        response_message = second_response["choices"][0]["message"]
+    messages.append(response_message)
+
+    if len(user_msg_history.data) > 0 and user_msg_history.data[0]['id']:
+        user_id = user_msg_history.data[0]['id']
+        data = supabase.table("conversations").update(
+            {"id": user_id, "last_update": str(datetime.datetime.now()), "phone_number": user_number,
+             "conversations": messages}).eq("phone_number",
+                                         user_number).execute()
+    else:
+        data, count = supabase.table('conversations').insert(
+            {"created_at": str(datetime.datetime.now()), "phone_number": user_number,
+             "conversations": messages}).execute()
+
+    return response_message.content
 
 if __name__ == "__main__":
     app.run(host="localhost", port=6000, debug=False)
