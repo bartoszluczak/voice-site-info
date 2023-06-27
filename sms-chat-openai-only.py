@@ -40,6 +40,7 @@ initial_prompt_l = """
     18. You can use the Details plugin to fetch more information about a business. This is useful if you want to show the caller more information about a business.
     19. If you don't use a tool or tool doesn't return any information ask how you can help.
     20. You can use tools to answers to user question.
+    21. Always return exactly one place/business.
     ####
     Example of conversation:
     User> I am looking for the nearest car repair
@@ -78,7 +79,7 @@ def search_google_places(place, location):
 
 
 @app.route("/sms", methods=['POST'])
-def chatgpt():
+def sms_chatgpt():
     messages = []
     user_number = request.form["From"]
     user_msg = request.form['Body'].lower()
@@ -102,7 +103,7 @@ def chatgpt():
     functions = [
                                                         {
                                                             "name": "search_google_places",
-                                                            "description": "Get places and businesses near the given location",
+                                                            "description": "Get places and businesses near the given location return only one result",
                                                             "parameters": {
                                                                 "type": "object",
                                                                 "properties": {
@@ -168,7 +169,7 @@ def chatgpt():
     return resp.message(response_message.content)
 
 @app.route("/chat", methods=['POST'])
-def chatgpt():
+def chat_chatgpt():
     messages = []
     user_number = request.form["From"]
     user_msg = request.form['Body'].lower()
@@ -192,7 +193,7 @@ def chatgpt():
     functions = [
                                                         {
                                                             "name": "search_google_places",
-                                                            "description": "Get places and businesses near the given location",
+                                                            "description": "Get places and businesses near the given location return only one result",
                                                             "parameters": {
                                                                 "type": "object",
                                                                 "properties": {
