@@ -134,9 +134,11 @@ def sms_chatgpt():
     resp = MessagingResponse()
     resp.message(chatgpt_response)
 
+    print(chatgpt_response)
+
     return resp.message(chatgpt_response)
 
-@app.route("/sms", methods=['POST'])
+@app.route("/chat", methods=['POST'])
 def chatgpt():
     user_number = request.form["From"]
     user_msg = request.form['Body'].lower()
@@ -179,6 +181,8 @@ def chatgpt():
              "conversations": dicts}).execute()
     memory.clear()
     history.clear()
+
+    print(chatgpt_response)
 
     return chatgpt_response
 

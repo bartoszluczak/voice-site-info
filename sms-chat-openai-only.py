@@ -89,10 +89,11 @@ def sms_chatgpt():
 
     if len(user_msg_history.data) > 0:
         msg_history = user_msg_history.data[0]['conversations']
-        dicts = json.loads(msg_history)
+        if len(msg_history) > 0:
+            dicts = json.loads(msg_history)
 
-        for msg in dicts:
-            messages.append(msg)
+            for msg in dicts:
+                messages.append(msg)
 
     else:
         messages.append({"role": "system", "content": initial_prompt_l})
@@ -166,7 +167,9 @@ def sms_chatgpt():
 
 
     resp = MessagingResponse()
-    return resp.message(response_message.content)
+    resp.message(response_message.content)
+
+    return(resp)
 
 @app.route("/chat", methods=['POST'])
 def chat_chatgpt():
