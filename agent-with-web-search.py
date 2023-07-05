@@ -1,7 +1,7 @@
+import datetime
 import json
 import os
 import openai
-from langchain.agents import initialize_agent, AgentType
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain.tools import GooglePlacesTool, Tool
@@ -9,6 +9,7 @@ from langchain.utilities import GooglePlacesAPIWrapper
 from vocode.streaming.models.agent import RESTfulAgentOutput, RESTfulAgentText
 from vocode.streaming.user_implemented_agent.restful_agent import RESTfulAgent
 from dotenv import load_dotenv
+from supabase import create_client
 import requests
 
 load_dotenv()
@@ -18,9 +19,12 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.langchain.plus"
 os.environ["LANGCHAIN_API_KEY"] = os.getenv('LANGCHAIN_API_KEY')
 os.environ["LANGCHAIN_SESSION"] = os.getenv('LANGCHAIN_SESSION_VOICE')
+url = os.getenv("SUPABASE_URL_VOICE")
+key = os.getenv("SUPABASE_KEY_VOICE")
+supabase = create_client(url, key)
 
 initial_prompt = """
-Your task is to act as a 411-type assistant called “Paige” to assist callers who are dialling into the service to inquire about phone numbers, addresses, and businesses near them. I will be chatting with you here as a caller in a role play.
+Your task is to act as a 411-type assistant called to assist callers who are dialling into the service to inquire about phone numbers, addresses, and businesses near them. I will be chatting with you here as a caller in a role play.
 The people calling in are an older demographic greater than 60 years of age. You are interacting with them via voice, so use clear speech and be concise while still offering multiple business options to their questions when possible. 
 If you do not know the location of the user, always ask them for their location in order to provide relevant recommendations.
 You are to introduce yourself as Paige. Never speak for anyone else, and don’t break character. 
@@ -119,7 +123,12 @@ def openai_chat_agent(messages):
     chatgpt_response = openai.ChatCompletion.create(model='gpt-3.5-turbo-16k', messages=messages,
                                                     functions=chatgpt_functions,
                                                     function_call="auto",
-                                                    stream=False, max_tokens=50)
+                                                    stream=False, max_tokens=50,
+                                                    headers={
+                                                        "Helicone-Auth": "Bearer sk-guw2jga-rznuisi-qylitfa-i3sux6a",
+                                                        "Helicone-Property-App": "voice",
+                                                    }
+                                                    )
     response_message = chatgpt_response["choices"][0]["message"]
 
     if response_message.get("function_call"):
@@ -146,11 +155,27 @@ def openai_chat_agent(messages):
         second_response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo-16k",
             messages=messages,
+            headers={
+                "Helicone-Auth": "Bearer sk-guw2jga-rznuisi-qylitfa-i3sux6a",
+                "Helicone-Property-App": "voice",
+            }
         )
 
         response_message = second_response["choices"][0]["message"]
 
     return response_message
+
+
+def update_db(user_msg_history, messages, conversation_id):
+    if len(user_msg_history.data) > 0 and user_msg_history.data[0]['id']:
+        print("Data exist")
+
+        data = supabase.table("voice_conversations").update(
+            {"id": conversation_id, "last_update_at": str(datetime.datetime.now()), "messages": messages}).eq("id", conversation_id).execute()
+    else:
+        print("Data not exist")
+        data, count = supabase.table('voice_conversations').insert(
+            {"id": conversation_id, "created_at": str(datetime.datetime.now()), "messages": messages}).execute()
 
 
 messages = []
@@ -168,8 +193,8 @@ class YourAgent(RESTfulAgent):
 
     async def respond(self, input: str, conversation_id: str) -> RESTfulAgentOutput:
         global messages
-        print('AGENT')
-        print("USER INPUT: ", input)
+
+        print(self, input, conversation_id)
 
         user_input = f"""
         Follow the instructions in the System role always.
@@ -179,12 +204,30 @@ class YourAgent(RESTfulAgent):
         Completion: 
         """
 
-        messages.append({"role": "system", "content": initial_prompt})
-        messages.append({"role": "user", "content": user_input})
+        user_msg_history = supabase.table('voice_conversations').select('id', 'messages').eq('id',
+                                                                                            conversation_id).execute()
+
+        if len(user_msg_history.data) > 0:
+            print("IF")
+            print(messages)
+
+            msg_history = user_msg_history.data[0]['messages']
+            if len(msg_history) > 0:
+                for msg in msg_history:
+                    messages.append(msg)
+
+        else:
+            print("ELSE")
+            print(messages)
+            messages.append({"role": "system", "content": initial_prompt})
+
+        inp_msg = f"{user_input}"
+        messages.append({"role": "user", "content": inp_msg})
 
         chatgpt_response = openai_chat_agent(messages)
         messages.append(chatgpt_response)
-        print("COMPLETION: ", chatgpt_response.content)
+
+        update_db(user_msg_history, messages, conversation_id)
 
         if len(chatgpt_response.content) > 0:
             return RESTfulAgentText(response=chatgpt_response.content)

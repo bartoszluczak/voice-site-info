@@ -5,6 +5,7 @@ from typing import Optional
 
 import openai
 from fastapi import FastAPI
+from vocode.streaming.models.audio_encoding import AudioEncoding
 from vocode.streaming.models.model import BaseModel
 from vocode.streaming.models.synthesizer import SynthesizerConfig, ElevenLabsSynthesizerConfig, AzureSynthesizerConfig
 
@@ -98,8 +99,6 @@ if not BASE_URL:
 if not BASE_URL:
     raise ValueError("BASE_URL must be set in environment if not using pyngrok")
 
-
-
 telephony_server = TelephonyServer(
     base_url=BASE_URL,
     config_manager=config_manager,
@@ -107,7 +106,8 @@ telephony_server = TelephonyServer(
         InboundCallConfig(
             url="/inbound_call",
             agent_config=RESTfulUserImplementedAgentConfig(
-                initial_message=BaseMessage(text="Hello, this is AI Agent Page. Ask me about phone numbers, addresses, and more near you. How can I assist you?"),
+                initial_message=BaseMessage(
+                    text="Hello, this is AI Agent Page. Ask me about phone numbers, addresses, and more near you. How can I assist you?"),
                 prompt_preamble=initial_prompt,
                 respond=RESTfulUserImplementedAgentConfig.EndpointConfig(
                     url="http://35.208.224.244:4001/respond",
@@ -117,8 +117,15 @@ telephony_server = TelephonyServer(
                 account_sid=os.environ["TWILIO_ACCOUNT_SID"],
                 auth_token=os.environ["TWILIO_AUTH_TOKEN"],
             ),
+            # synthesizer=Str
             synthesizer=AzureSynthesizer(
-                AzureSynthesizerConfig.from_telephone_output_device()
+                AzureSynthesizerConfig(
+                    voice_name="en-US-JennyNeural",
+                    audio_encoding='mulaw',
+                    sampling_rate=8000,
+                    pitch=0,
+                    rate=15
+                )
             ),
             transcriber_config=AzureTranscriberConfig.from_telephone_input_device(
                 endpointing_config=PunctuationEndpointingConfig()

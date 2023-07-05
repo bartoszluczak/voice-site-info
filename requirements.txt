@@ -18,3 +18,4 @@ supabase-py
 Flask~=2.3.2
 twilio~=8.3.0
 supabase~=1.0.3
+flask_cors
